@@ -1,14 +1,16 @@
 version: "2.3"
 services:
-  # This name i.e. 'algorithm' is the container's name and must be correspond with the argument of `docker-compose` command.
+  # This name i.e. 'algorithm' must be correspond with the argument of `docker-compose` command.
   algorithm:
     build:
       context: .
     # This image name must be correspond with the argument of `docker build` command.
     image: generative-models
-    # command: /bin/bash
     volumes:
       - .:/root/generative-models
+      - /datadrive:/datadrive
+    #   - /home/ubuntu/.ssh:/tmp/.ssh
+    # command: cp -R /tmp/.ssh /root/
     ports:
       - "8888:8888"
     # nvidia-container-runtime must be installed by `sudo apt install nvidia-container-runtime`
@@ -23,4 +25,5 @@ services:
     # }
     runtime: nvidia
     shm_size: 16g
-    command: jupyter lab --ip=0.0.0.0 --allow-root --no-browser
+    command: /bin/bash
+    # command: jupyter lab --ip=0.0.0.0 --allow-root --no-browser
