@@ -1,13 +1,13 @@
 version: "2.3"
 services:
-  # This name i.e. 'algorithm' must be correspond with the argument of `docker-compose` command.
-  algorithm:
+  # This name i.e. 'libraries' must be correspond with the argument of `docker-compose` command.
+  libraries:
     build:
       context: .
     # This image name must be correspond with the argument of `docker build` command.
-    image: generative-models
+    image: penguin-libraries
     volumes:
-      - .:/root/generative-models
+      - .:/root/penguin-libraries
       - /datadrive:/datadrive
     #   - /home/ubuntu/.ssh:/tmp/.ssh
     # command: cp -R /tmp/.ssh /root/
