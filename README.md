@@ -1,4 +1,4 @@
-# Useful algorithm modules
+# Useful algorithm libraries implemented in Python.
 
 ## EasyML
 
