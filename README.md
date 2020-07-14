@@ -1,1 +1,5 @@
-# Generative models by PyTorch-Lightning 
+# Useful algorithm modules
+
+## EasyML
+
+## EfficientGAN
