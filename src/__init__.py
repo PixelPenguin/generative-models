@@ -1,1 +1,0 @@
-from .EfficientGAN.main import Main as EfficientGAN
