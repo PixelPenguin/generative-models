@@ -6,7 +6,7 @@ from functools import partial
 import lightgbm as lgb
 import numpy as np
 import optuna
-from sklearn.metrics import roc_auc_score, accuracy_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold
 from tqdm import tqdm
 
