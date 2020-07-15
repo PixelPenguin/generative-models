@@ -46,7 +46,7 @@ RUN git clone https://github.com/pyenv/pyenv.git $PYENV_ROOT && \
 RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python
 ENV PATH $HOME/.poetry/bin:$PATH
 
-WORKDIR $HOME/generative-models
+WORKDIR $HOME/penguin-libraries
 COPY pyproject.toml poetry.lock poetry.toml ${WORKDIR}/
 RUN mkdir ${WORKDIR}/src && touch ${WORKDIR}/src/__init__.py
 RUN pip install --upgrade pip setuptools
