@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "generative-models"
+name = "penguin-libraries"
 version = "0.1.0"
-description = "Implementation of generative models."
+description = "Implementation of useful api."
 authors = ["PixelPenguin"]
 
 [tool.poetry.dependencies]
