@@ -1,4 +1,6 @@
 import copy
+import pickle
+import warnings
 from functools import partial
 
 import lightgbm as lgb
@@ -6,37 +8,50 @@ import numpy as np
 import optuna
 from sklearn.metrics import roc_auc_score, accuracy_score
 from sklearn.model_selection import KFold, StratifiedKFold
+from tqdm import tqdm
+
+warnings.filterwarnings('ignore')
+optuna.logging.set_verbosity(optuna.logging.ERROR)
 
 
-# DLの場合は挙動が違うので、分けて、Main, EasyML, EasyDLとする......?
+# TODO: distillationの実装 DTで説明可能性を見たりする。
 # TODO: regression, multiclass, multilabel (まずは実験的にマルチクラス、マルチラベルやってみる)
-# TODO: テスト書く、irisで動くか確かめる。
 class Main:
     """
     Attributes:
     Methods:
     """
-    def __init__(self, input='table', output='binary', algorithm='lgb', metric='auc', data_save=None, model_save=None):
+    def __init__(self, input='table', output='binary', algorithm='lgb', metric='auc', keep_input=True):
         """
+        Args:
+            input (str, optional (default='table')): input data type. 'table' or 'image'.
+                # TODO: implement for image task
+            output (str, optional (default='binary')): task type. 'binary', 'multiclass', 'multilabel' or  'regression'.
+                # TODO: regression, multiclass, multilabel
+            algorithm (str, optional (default='lgb')): estimator type. 'lgb', 'cnn' or 'rnn'
+                # TODO: cnn, rnn
         """
         self.input = input
         self.output = output
         self.algorithm = algorithm
         self.metric = metric
-        self.data_save = data_save
-        self.model_save = model_save
+        self.keep_input = keep_input
 
         self._estimator_list = []
-        self.oof_pred = np.array()
+        self.oof_pred = np.array([])
         self.score = {}
-        self.X = None
-        self.y = np.array()
+        self.X = np.array([])
+        self.y = np.array([])
+        self._X_train = np.array([])
+        self._y_train = np.array([])
+        self._X_val = np.array([])
+        self._y_val = np.array([])
         self.X_train_list = []
         self.y_train_list = []
         self.X_val_list = []
         self.y_val_list = []
 
-    def fit(self, X, y=None, cv=5, stratify=True, tune_hparams=True):
+    def fit(self, X, y=None, cv=5, seed=0, stratify=True, tune_hparams=True, n_trials=128, **kwargs):
         """
 
         Args:
@@ -44,45 +59,54 @@ class Main:
             y (np.ndarray, optional,)
         Returns:
         """
-        if self.data_save:
+        if self.keep_input:
             self.X = X
             self.y = y
 
-        if stratify:
-            kf = StratifiedKFold(n_splits=cv)
+        # TODO: regression と multilabelの層別化の追加。qcutを使う?
+        if stratify and self.output in ('binary', 'multiclass'):
+            kf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=seed)
         else:
-            kf = KFold(n_splits=cv)
+            kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
 
         self.oof_pred = np.zeros_like(y)
         train_score_list = []
         val_score_list = []
 
-        for train_idx, val_idx in kf.split(X, y):
+        pbar = tqdm(kf.split(X, y), total=kf.get_n_splits(), desc='[train]')
+        for train_idx, val_idx in pbar:
             X_train = X[train_idx]
             y_train = y[train_idx]
             X_val = X[val_idx]
             y_val = y[val_idx]
-            if self.data_save:
+            # set attributes for other methods.
+            self._X_train = X_train
+            self._y_train = y_train
+            self._X_val = X_val
+            self._y_val = y_val
+            if self.keep_input:
                 self.X_train_list.append(X_train)
                 self.y_train_list.append(y_train)
                 self.X_val_list.append(X_val)
                 self.y_val_list.append(y_val)
 
             if tune_hparams:
-                study = optuna.create_study(direction='maximize', sampler=optuna.samplers.RandomSampler(seed=0))
-                study.optimize(partial(self._objective, X_train, y_train, X_val, y_val), n_trials=100)
-                estimator = self._select_estimator(**study.best_params)
+                study = optuna.create_study(direction='maximize', sampler=optuna.samplers.RandomSampler(seed=seed))
+                study.optimize(partial(self._objective, X_train, y_train, X_val, y_val), n_trials=n_trials, n_jobs=-1)
+                estimator = self._select_estimator(study.best_params)
             else:
                 estimator = self._select_estimator()
-            estimator.fit(X_train, y_train, **self._select_estimator_training_params())
+            estimator.fit(X_train, y_train, **self._select_estimator_fit_params())
             _, train_score = self._predict_score(estimator, X_train, y_train)
             y_val_pred, val_score = self._predict_score(estimator, X_val, y_val)
 
+            pbar.set_postfix(dict(train_score=train_score, val_score=val_score))
             self._estimator_list.append(copy.deepcopy(estimator))
             self.oof_pred[val_idx] = y_val_pred
             train_score_list.append(train_score)
             val_score_list.append(val_score)
 
+        pbar.close()
         self.score = {
             'train': (np.mean(train_score_list), np.std(train_score_list)),
             'val': (np.mean(val_score_list), np.std(val_score_list)),
@@ -95,52 +119,82 @@ class Main:
             y_pred_list.append(y_pred)
         return np.stack(y_pred_list).mean(axis=0)
 
+    def save_input(self, path_dir='.', prefix=''):
+        common_name = f'{path_dir}/{prefix}_' if prefix else f'{path_dir}/'
+        if self.keep_input and self.X is not None:
+            with open(f'{common_name}X.pkl', 'wb') as f:
+                pickle.dump(self.X, f)
+            with open(f'{common_name}y.pkl', 'wb') as f:
+                pickle.dump(self.y, f)
+            with open(f'{common_name}X_train_holds.pkl', 'wb') as f:
+                pickle.dump(self.X_train_list, f)
+            with open(f'{common_name}y_train_holds.pkl', 'wb') as f:
+                pickle.dump(self.y_train_list, f)
+            with open(f'{common_name}X_val_holds.pkl', 'wb') as f:
+                pickle.dump(self.X_val_list, f)
+            with open(f'{common_name}y_val_holds.pkl', 'wb') as f:
+                pickle.dump(self.y_val_list, f)
+        else:
+            print('There is no input data. Try after changing `keep_input` to True and fitting this model.')
+
+    def distillate(self, type='dt'):
+        """Distillate model to DT or ...?
+        """
+        raise NotImplementedError
+        # distillated_estimator = None
+        # return distillated_estimator
+
     def _objective(self, X_train, y_train, X_val, y_val, trial):
         estimator = self._select_estimator(self._select_estimator_hparams(trial))
-        estimator.fit(X_train, y_train, **self._select_estimator_training_params())
+        estimator.fit(X_train, y_train, **self._select_estimator_fit_params())
         _, score = self._predict_score(estimator, X_val, y_val)
         return score
 
     def _select_estimator(self, hparams={}):
         if (self.input, self.output, self.algorithm) == ('table', 'binary', 'lgb'):
             return lgb.LGBMClassifier(**hparams)
+        elif (self.input, self.output, self.algorithm) == ('table', 'regression', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multiclass', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multilabel', 'lgb'):
+            raise NotImplementedError
         else:
             print('There is no available model for this task. Change `input`, `output`, or `algorithm`.')
             raise NotImplementedError
 
     def _select_estimator_hparams(self, trial):
         """
-        # カテゴリ変数
-        suggest_categorical(name, choices)
-        # カテゴリ変数 例
-        kernel = trial.suggest_categorical('kernel', ['linear', 'poly', 'rbf'])
+        Args:
+            trial: use optuna to tune hyperparameters.
+                1) categorical variables
+                    suggest_categorical(name, choices)
+                        e.g.
+                        kernel = trial.suggest_categorical('kernel', ['linear', 'poly', 'rbf'])
+                2) discrete variables
+                    suggest_discrete_uniform(name, low, high, 離散値のステップ)
+                        e.g.
+                        subsample = trial.suggest_discrete_uniform('subsample', 0.1, 1.0, 0.1)
+                3) integer variables
+                    suggest = int(name, low, high)
+                        e.g. n_estimators = trial.suggest_int('n_leaves', 16, 256)
+                4) continuous variables
+                    suggest_uniform(name, low, high)
+                        e.g.
+                        c = trial.suggest_loguniform('c', 1e-5, 1e2)
+                5) continuous variables (from log uniform distribution)
+                    uggest_loguniform(name, low, high)
+                        e.g.
+                        c = trial.suggest_loguniform('c', 1e-5, 1e2)
+                6) float variables
+                    suggest_float(name, low, high, step, log)
+                        e.g.
+                        trial.suggest_float('momentum', 0.0, 1.0)
+                        trial.suggest_float('power_t', 0.2, 0.8, step=0.1)
+                        trial.suggest_float('learning_rate_init',1e-5, 1e-3, log=True)
 
-        # 離散パラメータ
-        suggest_discrete_uniform(name, low, high, 離散値のステップ)
-        # 離散パラメータ 例
-        subsample = trial.suggest_discrete_uniform('subsample', 0.1, 1.0, 0.1)
-
-        # 整数パラメータ
-        suggest_int（name, low, high）
-        # 整数パラメータ 例
-        n_estimators = trial.suggest_int('n_estimators', 50, 400)
-
-        # 連続パラメータ(log)
-        suggest_loguniform（name, low, high）
-        # 連続パラメータ(log) 例
-        c = trial.suggest_loguniform('c', 1e-5, 1e2)
-
-        # 連続パラメータ
-        suggest_uniform（name, low, high）
-        # 連続パラメータ 例
-        dropout_rate = trial.suggest_uniform('dropout_rate', 0, 1.0)
-
-        # 小数パラメータ(ver1.3.0より実装）
-        suggest_float(name, low, high, )
-        # 小数パラメータ 例
-        trial.suggest_float('momentum', 0.0, 1.0)
-        trial.suggest_float('power_t', 0.2, 0.8, step=0.1) # 離散化ステップの設定
-        trial.suggest_float('learning_rate_init',1e-5, 1e-3, log=True) # logで設定
+        Returns:
+            (dict) : hiperparameters of estimator.
         """
         if (self.input, self.output, self.algorithm) == ('table', 'binary', 'lgb'):
             return {
@@ -150,23 +204,40 @@ class Main:
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.001, 0.3),
                 'n_estimators': 1000
             }
+        elif (self.input, self.output, self.algorithm) == ('table', 'regression', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multiclass', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multilabel', 'lgb'):
+            raise NotImplementedError
         else:
             print('There is no available model for this task. Change `input`, `output`, or `algorithm`.')
             raise NotImplementedError
 
-    def _select_estimator_training_params(self):
+    def _select_estimator_fit_params(self):
+        """
+        Returns:
+            (dict) : additional arguments of estimator's `fit` method.
+        """
         if (self.input, self.output, self.algorithm) == ('table', 'binary', 'lgb'):
             return {
+                'eval_set': [(self._X_val, self._y_val)],
                 'early_stopping_rounds': 100,
                 'verbose': False
             }
+        elif (self.input, self.output, self.algorithm) == ('table', 'regression', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multiclass', 'lgb'):
+            raise NotImplementedError
+        elif (self.input, self.output, self.algorithm) == ('table', 'multilabel', 'lgb'):
+            raise NotImplementedError
         else:
             print('There is no available model for this task. Change `input`, `output`, or `algorithm`.')
             raise NotImplementedError
 
     def _predict_score(self, estimator, X, y=None):
         if self.metric == 'auc':
-            y_pred = estimator.predict_proba(X)
+            y_pred = estimator.predict_proba(X)[:, 1]  # output of predict_proba is a 2d array.
             score = roc_auc_score(y, y_pred) if y is not None else None
             return y_pred, score
         if self.metric == 'accuracy':
