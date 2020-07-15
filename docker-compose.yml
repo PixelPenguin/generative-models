@@ -1,6 +1,6 @@
 version: "2.3"
 services:
-  # This name i.e. 'algorithm' must be correspond with the argument of `docker-compose` command.
+  # This name i.e. 'libraries' must be correspond with the argument of `docker-compose` command.
   libraries:
     build:
       context: .
