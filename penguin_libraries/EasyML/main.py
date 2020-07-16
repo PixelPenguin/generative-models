@@ -135,7 +135,7 @@ class Main:
                 )
                 study.optimize(
                     partial(self._objective, X_train, y_train, X_val, y_val),
-                    n_trials=n_trials, timeout=timeout / cv, n_jobs=-1
+                    n_trials=n_trials, timeout=timeout / cv, show_progress_bar=True
                 )
                 estimator = self._select_estimator(study.best_params)
             else:
