@@ -72,7 +72,7 @@ class Main:
         self.y_val_list = []
 
     # TODO: fit with minibatch for large data.
-    def fit(self, X, y=None, cv=5, seed=0, stratify=True, tune_hparams=True, n_trials=128, timeout=3600, verbose=True, **kwargs):
+    def fit(self, X, y=None, cv=5, stratify=True, tune_hparams=True, n_trials=128, timeout=3600, verbose=True):
         """select proper ml model(s) then train them and tune hyperparameters.
 
         Args:
