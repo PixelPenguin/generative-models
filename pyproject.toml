@@ -1,33 +1,36 @@
 [tool.poetry]
 name = "penguin-libraries"
-version = "0.1.0"
-description = "Implementation of useful api."
+packages = [
+    { include = "src" }
+]
+version = "0.1.2"
+description = "Easy and useful libraries."
 authors = ["PixelPenguin"]
 
 [tool.poetry.dependencies]
-python = "^3.7"
-numpy = "^1.18.5"
-pandas = "^1.0.4"
-Pillow = "^7.1.2"
-PyYAML = "^5.3.1"
-pytorch-lightning = "0.7.6"
-scikit-learn = "^0.23.1"
-tensorboard = "^2.2.2"
-torch = "1.5.0"
-torchvision = "0.6.0"
-lightgbm = "^2.3.1"
-optuna = "^1.5.0"
+python = "^3.6"
+lightgbm = "*"
+numpy = "*"
+optuna = "*"
+pandas = "*"
+Pillow = "*"
+pytorch-lightning = "*"
+PyYAML = "*"
+scikit-learn = "*"
+tensorboard = "*"
+torch = "*"
+torchvision = "*"
 
 [tool.poetry.dev-dependencies]
-autopep8 = "^1.5.3"
-flake8 = "^3.8.2"
-flake8-isort = "^3.0.0"
-flake8-quotes = "^3.2.0"
-jupyter = "^1.0.0"
-jupyterlab = "^2.1.4"
-pep8-naming = "^0.10.0"
-tqdm = "^4.46.1"
-pytest = "^5.4.3"
+autopep8 = "*"
+flake8 = "*"
+flake8-isort = "*"
+flake8-quotes = "*"
+jupyter = "*"
+jupyterlab = "*"
+pep8-naming = "*"
+pytest = "*"
+tqdm = "*"
 
 [build-system]
 requires = ["poetry>=0.12"]

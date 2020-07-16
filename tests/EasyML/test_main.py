@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from sklearn.datasets import load_iris, load_diabetes, load_wine  # TODO: add multilabel
+from sklearn.datasets import load_diabetes, load_iris, load_wine  # TODO: add multilabel
 
 from EasyML import main
 

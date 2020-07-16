@@ -14,6 +14,7 @@ warnings.filterwarnings('ignore')
 optuna.logging.set_verbosity(optuna.logging.ERROR)
 
 
+# TODO: predict_probaとpredictが区別できるように。
 # TODO: distillationの実装 DTで説明可能性を見たりする。
 # TODO: regression, multiclass, multilabel (まずは実験的にマルチクラス、マルチラベルやってみる)
 class Main:
