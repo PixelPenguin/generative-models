@@ -1,5 +1,5 @@
-import copy
 import pickle
+import time
 import warnings
 from functools import partial
 
@@ -8,7 +8,8 @@ import numpy as np
 import optuna
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold
-from tqdm import tqdm
+
+from . import utils
 
 warnings.filterwarnings('ignore')
 optuna.logging.set_verbosity(optuna.logging.ERROR)
@@ -33,7 +34,7 @@ class Main:
         ('table', 'binary', 'lgb', 'acc')
     ]
 
-    def __init__(self, input='table', output='binary', algorithm='lgb', metric='auc', keep_input=True):
+    def __init__(self, input='table', output='binary', algorithm='lgb', metric='auc', keep_input=True, random_state=0):
         """
         Args:
             input (str (default='table')): input data type. 'table'
@@ -45,6 +46,7 @@ class Main:
             metric (str (default='auc')): metric type. 'auc' or 'acc'
                 # TODO: rmse for regression
             keep_input (bool, (default=True)): keep input data as attributes.
+            random_state (int): random seed.
         """
         if not (input, output, algorithm, metric) in Main.available_task:
             raise NotImplementedError
@@ -53,6 +55,7 @@ class Main:
         self.algorithm = algorithm
         self.metric = metric
         self.keep_input = keep_input
+        self.random_state = random_state
 
         self._estimator_list = []
         self.oof_pred = np.array([])
@@ -69,7 +72,7 @@ class Main:
         self.y_val_list = []
 
     # TODO: fit with minibatch for large data.
-    def fit(self, X, y=None, cv=5, seed=0, stratify=True, tune_hparams=True, n_trials=128, **kwargs):
+    def fit(self, X, y=None, cv=5, seed=0, stratify=True, tune_hparams=True, n_trials=128, timeout=3600, verbose=True, **kwargs):
         """select proper ml model(s) then train them and tune hyperparameters.
 
         Args:
@@ -89,24 +92,34 @@ class Main:
                     #     [0, 1, 1],
                     #     [0, 1, 0]
                     # ])
-            threshold (float): threshold to be classified as class 1 for binary and multilabel classification.
+            cv (int): the number of cross validation.
+            stratify (bool): flag to use `StratifiedKFold` instead of `KFold`.
+            tune_hparams (bool): flag to tune hypterparameters by Optuna or not.
+            n_trials (bool): if `tune_params` is True, hyperparameters are searched this number of times.
+            timeout (int): stop study after the given number of second(s).
         """
+        print(
+            f'Training params: cv={cv}, stratify={stratify}, tune_hparams={tune_hparams}, '
+            f'n_trials={n_trials}, timeout={timeout}'
+        ) if verbose else None
         if self.keep_input:
             self.X = X
             self.y = y
 
         # TODO: stratify for regression and multilabel.
         if stratify and self.output in ('binary', 'multiclass'):
-            kf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=seed)
+            kf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.random_state)
         else:
-            kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
+            kf = KFold(n_splits=cv, shuffle=True, random_state=self.random_state)
 
         self.oof_pred = np.zeros_like(y)
         train_score_list = []
         val_score_list = []
 
-        pbar = tqdm(kf.split(X, y), total=kf.get_n_splits(), desc='[train]')
-        for train_idx, val_idx in pbar:
+        for i, (train_idx, val_idx) in enumerate(kf.split(X, y)):
+            print(f'Fold #{i} | ', end='') if verbose else None
+            fold_start = time.time()
+
             X_train, y_train, X_val, y_val = X[train_idx], y[train_idx], X[val_idx], y[val_idx]
             # set attributes for validation and tuning.
             self._X_train, self._y_train, self._X_val, self._y_val = X_train, y_train, X_val, y_val
@@ -117,8 +130,13 @@ class Main:
                 self.y_val_list.append(y_val)
 
             if tune_hparams:
-                study = optuna.create_study(direction='maximize', sampler=optuna.samplers.RandomSampler(seed=seed))
-                study.optimize(partial(self._objective, X_train, y_train, X_val, y_val), n_trials=n_trials, n_jobs=-1)
+                study = optuna.create_study(
+                    direction='maximize', sampler=optuna.samplers.RandomSampler(seed=self.random_state)
+                )
+                study.optimize(
+                    partial(self._objective, X_train, y_train, X_val, y_val),
+                    n_trials=n_trials, timeout=timeout / cv, n_jobs=-1
+                )
                 estimator = self._select_estimator(study.best_params)
             else:
                 estimator = self._select_estimator()
@@ -126,13 +144,16 @@ class Main:
             _, train_score = self._predict_score(estimator, X_train, y_train)
             y_val_pred, val_score = self._predict_score(estimator, X_val, y_val)
 
-            pbar.set_postfix(dict(train_score=train_score, val_score=val_score))
-            self._estimator_list.append(copy.deepcopy(estimator))
+            self._estimator_list.append(utils.deepcopy_without_verbose(estimator))
             self.oof_pred[val_idx] = y_val_pred
             train_score_list.append(train_score)
             val_score_list.append(val_score)
 
-        pbar.close()
+            if verbose:
+                print(f'Elapsed time: {time.time() - fold_start:<4.1f} [sec] | ', end='')
+                print(f'Train {self.metric}: {train_score:<5.3f} | ', end='')
+                print(f'Valid {self.metric}: {val_score:<5.3f}')
+
         self.score = {
             'train': (np.mean(train_score_list), np.std(train_score_list)),
             'val': (np.mean(val_score_list), np.std(val_score_list)),
@@ -292,9 +313,14 @@ class Main:
             return {
                 'boosting_type': trial.suggest_categorical('boosting_type', ['gbdt', 'dart']),
                 'num_leaves': trial.suggest_int('num_leaves', 8, 256),
-                'min_child_samples': trial.suggest_int('min_child_samples', 2, 128),
+                'min_child_samples': trial.suggest_int(
+                    'min_child_samples',  # this hypterparamter has a great effect on the time to fit model(s).
+                    max(int(np.log(len(self._X_train))), 8), min(int(np.sqrt(len(self._X_train))), 128)
+                ),
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.001, 0.3),
-                'n_estimators': 1000
+                'n_estimators': 1000,
+                'verbose': -1,
+                'random_state': self.random_state,
             }
         elif (self.input, self.output, self.algorithm) == ('table', 'regression', 'lgb'):
             raise NotImplementedError
@@ -313,7 +339,7 @@ class Main:
             return {
                 'eval_set': [(self._X_val, self._y_val)],
                 'early_stopping_rounds': 100,
-                'verbose': False
+                'verbose': False,
             }
         elif (self.input, self.output, self.algorithm) == ('table', 'regression', 'lgb'):
             raise NotImplementedError
