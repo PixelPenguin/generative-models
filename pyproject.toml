@@ -3,7 +3,7 @@ name = "penguin-libraries"
 packages = [
     { include = "src" }
 ]
-version = "0.1.2"
+version = "0.1.3"
 description = "Easy and useful libraries."
 authors = ["PixelPenguin"]
 

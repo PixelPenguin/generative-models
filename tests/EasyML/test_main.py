@@ -79,3 +79,8 @@ def test_main(tp):
     assert set(model.score.keys()) == set(['train', 'val'])
     assert len(model.score['train']) == 2
     assert len(model.score['val']) == 2
+    assert model.predict(tp['X']).shape == tp['y'].shape
+    if tp['output'] in ['binary', 'multiclass']:
+        assert model.predict_proba(tp['X']).shape == (len(tp['y']), len(np.unique(tp['y'])))
+    elif tp['output'] in ['multilabel']:
+        assert model.predict_proba(tp['X']).shape == tp['y'].shape
