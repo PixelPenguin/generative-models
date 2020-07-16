@@ -1,9 +1,6 @@
 [tool.poetry]
 name = "penguin_libraries"
-packages = [
-    { include = "src" }
-]
-version = "0.1.3"
+version = "0.1.4"
 description = "Easy and useful libraries."
 authors = ["PixelPenguin"]
 
