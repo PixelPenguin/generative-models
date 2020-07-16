@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "penguin-libraries"
+name = "penguin_libraries"
 packages = [
     { include = "src" }
 ]
