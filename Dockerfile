@@ -34,6 +34,7 @@ RUN apt-get update && apt-get upgrade -y && \
 ENV HOME /root
 
 ENV PYTHON_VERSION 3.7.4
+# ENV PYTHON_VERSION 3.6.8
 ENV PYTHON_ROOT $HOME/local/python-$PYTHON_VERSION
 ENV PATH $PYTHON_ROOT/bin:$PATH
 
